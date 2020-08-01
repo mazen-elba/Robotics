@@ -1,8 +1,8 @@
 /*
-    :Version 1.0
+    :Version 2.0
     :Author: Mazen Abdelbasir
     :Email: mazen.elba@gmail.com
-    :Last Update: 05/07/2020
+    :Last Update: 05/13/2020
 */
 
 #include <NewPing.h>
@@ -11,6 +11,10 @@
 #define SONAR_NUM 3      // number of sensors
 #define MAX_DISTANCE 200 // max distance to detect obstacles
 #define PING_INTERVAL 33 // looping pings after 22 microseconds
+
+int LOOPING = 10;               // loop for every 10 milliseconds
+int DECREASE_SPEED_LOOP = 400;  // give some time to sensors for few more readings
+int MOVE_TO_NEW_POSITION = 500; // wait for the new position
 
 unsigned long _timerStart = 0;
 unsigned long _timerStartReady = 0;
@@ -45,8 +49,13 @@ NewPing sonar[SONAR_NUM] = {
 
 SimpleKalmanFilter KF_Left(2, 2, 0.01);
 SimpleKalmanFilter KF_Center(2, 2, 0.01);
-SImpleKalmanFilter KF_Right(2, 2, 0.01);
+SimpleKalmanFilter KF_Right(2, 2, 0.01);
 
+/*
+    NAVIGATION
+*/
+
+// defines values for the robot to pass depending on its condition
 enum NavigationStates
 {
     CHECK_ALL,
@@ -99,7 +108,7 @@ bool isTimerPosition(int _mSec)
     return (millis() - _timerStartPosition) > _mSec;
 }
 
-// looping the sensors
+// looping the sensors (via NewPing library); return readings when sensor ping cycle is complete
 void sensorCycle()
 {
     for (uint8_t i = 0; i < SONAR_NUM; i++)
@@ -119,7 +128,7 @@ void sensorCycle()
     }
 }
 
-// if ping received, set sensor distance to array
+// if ping is received, set sensor distance to array (add to array distance measured)
 void echoCheck()
 {
     if (sonar[currentSensor].check_timer())
@@ -136,7 +145,11 @@ void oneSensorCycle()
     rightSensor = returnLastValidRead(2, cm[2]);
 }
 
-// if sensor value is 0, return last stored value different than 0
+/*
+    Apply filter to remove noisy, jumpy or erratic readings
+*/
+
+// if sensor value is 0, return last stored value different than 0; otherwise, store previous value (other than 0) in array
 int returnLastValidRead(uint8_t sensorArray, uint8_t cm)
 {
     if (cm != 0)
@@ -149,7 +162,7 @@ int returnLastValidRead(uint8_t sensorArray, uint8_t cm)
     }
 }
 
-// apply Kalman Filter to sensor reading
+// apply Kalman Filter to remove jumpy or erratic sensor's readings
 void applyKF()
 {
     isObstacleLeft = obstacleDetection(KF_Left.updateEstimate(leftSensor));
@@ -194,8 +207,9 @@ void obstacleAvoidance()
 
     case SPEED_DECREASE:
     {
-        moveForward(minSpeed) : // wait for few more readings at low speed, go to check obstacle position
-                                if (isTimerReady(DECREASE_SPEED_LOOP))
+        moveForward(minSpeed);
+        // wait for few more readings at low speed, go to check obstacle position
+        if (isTimerReady(DECREASE_SPEED_LOOP))
         {
             _navState = CHECK_OBSTACLE_POSITION;
         }
@@ -255,7 +269,7 @@ void obstacleAvoidance()
         // if obstacle exists, go left or right
         if (randomMove() == 1)
         {
-            _navState = Left;
+            _navState = LEFT;
         }
         else
         {
@@ -299,6 +313,10 @@ void obstacleAvoidance()
     break;
     }
 }
+
+/*
+    DRIVE SYSTEM
+*/
 
 // L298N motor driver
 void stopMotors()
@@ -356,7 +374,9 @@ int randomMove()
     return rnd_number % 2;
 }
 
-/* SETUP & LOOP */
+/* 
+    SETUP & LOOP 
+*/
 void setup()
 {
     Serial.begin(115200);
